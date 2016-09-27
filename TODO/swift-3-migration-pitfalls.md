@@ -1,110 +1,97 @@
 > * 原文地址：[Swift 3 migration pitfalls](http://codelle.com/blog/2016/9/swift-3-migration-pitfalls/)
 * 原文作者：[ Emil Loer](http://codelle.com/contact/)
 * 译文出自：[掘金翻译计划](https://github.com/xitu/gold-miner)
-* 译者：
+* 译者：[shliujing](https://github.com/shliujing) 
 * 校对者：
-
-
 
 [](http://codelle.com/blog/2016/9/swift-3-migration-pitfalls/)
 
-Hooray! Swift 3 got released, so let's migrate! In this post I will tell you about my experiences of migrating a 20K lines Swift project to version 3 of the language. In case you're curious, the project is my own implementation of the Cassowary linear constraint solving algorithm most famous for it's use in Auto Layout, but I'm using it for something totally different which I will write about in a future article.
+万岁！Swift 3 发布了，让我们一起来移植项目吧！在这篇文章中，我会向你阐述关于我的 Swift 3 语言的项目移植经历，那是一个 2 万行的 Swift 项目。如果你对此感到好奇，这个项目其实是我实现的 Cassowary 线性约束求解算法 ，该算法最著名之处在于其通常被用于页面的自动布局。但我将它用在了一些完全不同的事情上，我将会在以后的文章中说明。
 
-### The Swift Migrator
+### Swift 移植器
 
-The first step was to convert my project by running the Swift Migrator from Xcode. The migrator caught most of the things I had to change, so it saved me a lot of work. There were a few things I had to change afterwards. The two most interesting ones were permission changes (the new permission model default to making `public` classes and methods `open`, but I wanted to limit this in most cases) and a binary search function that I had to rewrite because of changes to the way collection index manipulation works. No big deal though.
+第一步是从 Xcode 中运行 Swift 移植器来对我的项目进行转换。移植器帮助我捕捉到了大量需要修改的代码，这节省了我很多的工作。而有几件事情我不得不在这之后做出修改，虽然这并不是很麻烦。最有趣的两件是权限变更（新的权限模型默认为使类 `public` 和方法 `open`，但我想在大多数情况下限制这一点）和一个我不得不重写的二进制搜索功能，起因是收集索引操作的工作方式的变更。
 
-### Nothing has changed
+### 什么也没有变
 
-As is tradition now with any new Swift release my first compilation attempt segfaulted the compiler. The compiler log did output a list of errors before segfaulting and after I worked on these the crash disappeared and I was good to go.
+根据惯例来看，每次 Swift 发布的新版本，我尝试的第一次编译都会报错。在报错之前编译器日志会输出一个错误列表，之后我会根据列表解决错误，然后代码就可以正常运行了。
 
-The compilation errors I had to fix were related to two language changes that the migrator did not catch. I will highlight these in the next two sections.
+我必须修复那些未被移植器捕捉到的，涉及两个语言之间变化所造成的变异错误，在下面两节我会高亮标注这些代码。
 
-### New Ranges
+### 新的范围
 
-The first class of errors had to do with semantic changes to the `Range` structure. In Swift 3 ranges are now represented using four different structs to distinguish between countable/uncountable ranges and open/closed ranges. In Swift 2 open and closed ranges were represented using the same struct, so if you had some code that had to work on both types this needs some changes.
+第一类必须解决的错误源于新的 `Range` 结构所带来的语义变更。现在 Swift 3 的范围使用四个不同的结构来区分可计数式/不可计数式和开放式/封闭式。而在 Swift 2 中，开放式和封闭式范围使用相同的结构，所以如果你有一些代码必须在两种范围下都生效，那么你需要做一些修改工作。
 
-Consider this valid Swift 2 example:
-
-
-
-    func doSomething(with range: Range) {
-        for number in range {
-            ...
-        }
-    }
-
-    doSomething(with: 0..<10) 
-    doSomething(with:="" 0...10)="" 
+下面是一个有效的 Swift 2 例子：
 
 
+func doSomething(with range: Range) {
+for number in range {
+...
+}
+}
 
-In Swift 2 this would work for both half-open and closed countable ranges. The migrator did not convert the struct name, so after migration this does not work anymore. In Swift 3 `Range` represents a half-open uncountable range. Since uncountable ranges don't support iteration we have to change this, and it would also be nice if we can make it work on both half-open and closed ranges. The solution is to either convert the input to an half-open countable range or use generics to make it work on both. This makes use of the fact that countable ranges implement the `Sequence` protocol.
-
-Here is a Swift 3 version that works:
-
-
-
-    func doSomething(for range: IterableRange) 
-        where IterableRange: Sequence, IterableRange.Iterator.Element == Int {
-        for number in range {
-            ...
-        }
-    }
-
-    doSomething(with: 0..<10) 
-    doSomething(with:="" 0...10)="" 
+doSomething(with: 0..<10) 
+doSomething(with:="" 0...10)="" 
 
 
+在 Swift 2 中，上面的代码在半开放式和封闭式的可计数范围是生效的。移植器没有转换该结构名称，因此在项目移植后这部分代码不生效。在 Swift 3 `Range` 表示半开放不可计数式范围。由于不可计数式范围不支持迭代，所以我们必须改变这一点，而如果我们使它可以在半开放式和封闭式范围都能生效，这将会非常棒。解决方案是通过将输入转换为半开放可计数式范围或使用泛型使它在两种范围下都生效。事实上，这是利用了可计数式范围来实现 `Sequence` 协议。
 
-### Tuple Conversion
-
-Another thing the compiler complained about was named tuple conversion. The following is a piece of valid Swift 2 code:
-
+这是一段可运行的 Swift 3 版本代码：
 
 
-    typealias Tuple = (foo: Int, bar: Int)
+func doSomething(for range: IterableRange) 
+where IterableRange: Sequence, IterableRange.Iterator.Element == Int {
+for number in range {
+...
+}
+}
 
-    let dict: [Int: Int] = [1: 100, 2: 200]
-
-    for tuple: Tuple in dict {
-        print("foo is \(tuple.foo) and bar is \(tuple.bar)")
-    }
-
-
-
-The migrator left this code untouched, but the compiler complains about the for loop's typecast to `Tuple`. When iterating over that dictionary the iterable element type is `(key: Int, value: Int)` and in Swift 2 it was perfectly fine to assign this directly to a variable having a named tuple type with the same member types but different names. Well, not anymore!
-
-Although I think that this stricter typing is in general a good idea, it does mean that we now have to explicitly convert the tuple to our target type. We can replace the loop with the following code to make it work again:
+doSomething(with: 0..<10) 
+doSomething(with:="" 0...10)="" 
 
 
+### 元组转换
 
-    for tuple in dict {
-        let tuple: Tuple = (foo: tuple.key, bar: tuple.value)
-        print("foo is \(tuple.foo) and bar is \(tuple.bar)")
-    }
+另一类编译器会报错是元组转换。下面是一段有效的 Swift 2 代码：
 
 
+typealias Tuple = (foo: Int, bar: Int)
 
-Of course this is a contrived example, but if you're passing this tuple around or whatever it can keep the code more understandable if you're using semantically valid names instead of key/value, which are only relevant to the dictionary.
+let dict: [Int: Int] = [1: 100, 2: 200]
 
-### PaintCode and Core Graphics
-
-Something else worth mentioning is Core Graphics. Swift 3 introduces objectification of Core Foundation-style references, meaning that you can now use them as if they were Swift objects instead of a group of C functions. This is really neat for keeping your code readable. This new feature is most often seen with Core Graphics calls. The migrator converts most of these calls, but some of the lesser used functions (e.g. arc drawing) are not converted and have to be done manually.
-
-In my projects I make a lot of use of PaintCode. With PaintCode's code generation being notorious for not fully supporting the most recent Swift syntax (the current version still produces warnings on Swift 2.3 even though it is a trivial issue to solve) I was afraid my graphics code might not convert properly. Fortunately the code gods smiled upon me because no additional issues were encountered after migration. You might still want to change the visibility from `open` to `internal` though to benefit from more compiler optimisations. (I have a script that does this with some regexing)
-
-### Performance
-
-Overall I noticed no significant changes in compilation time in my projects after migration. My benchmarking unit tests showed a slight performance drop in dictionary-heavy code, but otherwise nothing significant. My constraint solver still works in real-time. :)
-
-### Final Thoughts
-
-Overall, migration to Swift 3 was quite easy. The migrator helped me get through most of the changes, and the remaining stuff was easy to fix. It might be different if you're still a bit new to Swift though, so your mileage may vary.
-
-A final tip that really helps: make sure you have plenty of unit tests for the algorithmic parts of your project (never a bad idea!) so you can verify that no semantic changes were introduced during migration, and if they were then you can locate them!
-
-If you've enjoyed this post please follow me on [Twitter](https://twitter.com/codelleapps) or [Facebook](https://facebook.com/codelle.apps). I'd really appreciate it!
+for tuple: Tuple in dict {
+print("foo is \(tuple.foo) and bar is \(tuple.bar)")
+}
 
 
+移植器保留了这段代码的原貌，可编译器会报 for 循环的类型强制转换为 `Tuple` 的错误。当遍历的该字典可迭代的元素类型是`(key: Int, value: Int)`时，在 Swift 2 中这很完美。可直接分配具有相同的成员类型，但不同名字命名的元组类型的变量。现在可好，再也不支持这个特性了！
 
+虽然我认为这个更为严格的类型控制的设计，在通常情况下是一个好主意，这意味着现在我们需要将元组显式转换为我们的目标类型。我们可以通过替换上述 for 循环语句为下面的代码，使代码可以重新生效运行：
+
+
+for tuple in dict {
+let tuple: Tuple = (foo: tuple.key, bar: tuple.value)
+print("foo is \(tuple.foo) and bar is \(tuple.bar)")
+}
+
+
+当然，这是一个特别修正过的例子，但如果你也正在解决这个元组转换问题或者你能使用基于语义的有效的名称，而不是键/值对的方式，使得相关的字典使代码更容易理解，那最好了。
+
+### PaintCode 与 Core Graphics
+
+其他类值得一提的错误有 Core Graphics。Swift 3 引入了 Core Foundation-style 对象调用机制，也就是说现在你可以将其当做Swift对象来使用，而不是一组 C 函数。这可以让你的代码很整洁且保持可读性。这一新特性最常见于 Core Graphics 调用。移植器会转换大多数这些调用，但一些较少使用的函数（例如：Arc、Drawing）则不会被转换，所以你必须手动完成这部分的转换工作。
+
+在我的项目中，我使用了大量的 PaintCode。而 PaintCode 的代码生成是出了名的不完全支持最新的 Swift 语法（当前版本仍然会产生对 Swift 2.3 的警告，即使它是一个需要解决的微不足道的问题）我真害怕我的图形代码可能无法正常地转换。幸运地的是上帝眷顾了我，因为移植后的代码并没有出现额外的问题。你可能还是想把代码的可见度从 `open` 变为 `internal`，尽管这能从编译器优化技术中受益更多。 （我有一个脚本，已经可以通过一些正则方式解决这个问题）
+
+### 性能
+
+总的来说，我注意到的是，在移植后我的项目在编译时间上没有显著变化。我的基准单元测试显示，代码在字典重码方面有轻微的性能下降，除此之外没有其他显著变化。我的约束求解器仍然能够即可工作。 :)
+
+### 最后的想法
+
+总体而言，移植到 Swift 3 还是很容易的。移植器帮助我解决了过程中的大部分变更，而剩下的那部分也很容易修复。如果对你而言 Swift 还有点新 ，那我和你的情况可能会不同，以至于你的项目里程也会有所差异。
+
+最后提一个非常有用的小建议：请确保你的项目中，在算法部分有足够多的的单元测试（这从不是一个坏主意！）这样你就可以验证在移植过程中是否有引入语义变化，而如果引入了变化，你也可以找到他们！
+
+如果你喜欢这篇文章，请关注我的 [Twitter](https://twitter.com/codelleapps) 或 [Facebook](https://facebook.com/codelle.apps)。非常感谢！
